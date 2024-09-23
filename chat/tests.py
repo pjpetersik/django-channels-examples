@@ -1,13 +1,11 @@
 from asgiref.sync import sync_to_async
+from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
 from channels.testing import WebsocketCommunicator
-from django.contrib.auth import get_user_model
-from channels.layers import get_channel_layer
-from django.urls import reverse
 
-from core.asgi import application
 from chat.models import Room, Message
-from chat.consumers import ChatConsumer
+from core.asgi import application
+
 User = get_user_model()
 
 

@@ -1,0 +1,204 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>django-channels-checklist</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        .card:hover {
+            background: rgba(10, 100, 10, 0.1);
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-3 p-5">
+        <h2>django-channels-checklist</h2>
+        <div id="tasks" class="row"></div>
+        <div id="newTask" class="row">
+            <div class="col-12 col-md-6 mb-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <input 
+                                id="newTaskInput"
+                                type="text"
+                                placeholder="Add a new task..." 
+                                class="w-100 bg-transparent fw-bold"
+                                style="border: none; outline: none;"
+                            >
+                        </h5>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        console.log("Sanity check from index.html script.");
+
+        // WebSocket connection and reconnect logic
+        function connect() {
+            checklistSocket = new WebSocket(`ws://${window.location.host}/ws/checklist/`);
+
+            checklistSocket.onopen = () => console.log("Successfully connected to the WebSocket.");
+            checklistSocket.onmessage = ({ data }) => handleMessage(JSON.parse(data));
+            checklistSocket.onclose = () => {
+                console.log("WebSocket connection closed unexpectedly. Reconnecting in 2s...");
+                setTimeout(connect, 2000);
+            };
+        }
+
+        // Event listener for task input
+        document.getElementById("newTaskInput").addEventListener("keypress", event => {
+            if (event.key === "Enter") {
+                taskAdd(event.target.value);
+                event.target.value = "";
+            }
+        });
+
+        // Handle incoming WebSocket messages
+        function handleMessage(data) {
+            const handlers = {
+                "task.list": taskListHandler,
+                "task.add": taskAddHandler,
+                "task.update": taskUpdateHandler,
+                "task.delete": taskDeleteHandler,
+                "item.add": itemAddHandler,
+                "item.update": itemUpdateHandler,
+                "item.delete": itemDeleteHandler,
+            };
+            const handler = handlers[data.type];
+            handler ? handler(data) : console.error(`Unknown message type: ${data.type}`);
+        }
+
+        // Generate item checkbox HTML
+        function createItemCheckbox(item) {
+            return `
+                <div id="itemcheckbox_${item.id}" class="d-flex align-items-center">
+                    <input id="itemcheckbox_input_${item.id}" type="checkbox" ${item.done_at ? "checked" : ""}onchange="itemUpdate(${item.id}, this.checked)">
+                    <label for="itemcheckbox_${item.id}" class="ms-2">${item.name}</label>
+                    <button class="btn btn-sm btn-dark ms-auto p-0" style="font-size: 0.75rem; width: 20px; height: 20px;" onclick="itemDelete(${item.id})">X</button>
+                </div>`;
+        }
+
+        // Generate task card HTML
+        function createTaskCard(task) {
+            const taskCard = document.createElement("div");
+            taskCard.id = `taskCard_${task.id}`;
+            taskCard.className = "col-12 col-md-6 mb-3";
+
+            const taskItemList = task.items.map(createItemCheckbox).join('');
+
+            taskCard.innerHTML = `
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <button class="btn btn-sm btn-danger ms-auto p-0" style="position: absolute; top: 10px; right: 10px; font-size: 0.75rem; width: 20px; height: 20px;" onclick="taskDelete(${task.id})">X</button>
+                        <h5 class="card-title">
+                            <input
+                                id="taskUpdateInput_${task.id}"
+                                type="text"
+                                class="w-100 border-0 bg-transparent fw-bold"
+                                value="${task.name}"
+                            >
+                        </h5>
+                        <div id="taskItemList_${task.id}">${taskItemList}</div>
+                        <input 
+                            type="text" 
+                            id="newItemInput_${task.id}"
+                            placeholder="Add a new item..."
+                            class="w-100 border-0 bg-transparent"
+                            style="border: none; outline: none;"
+                        >
+                    </div>
+                </div>`;
+
+            return taskCard;
+        }
+
+        // Handlers for WebSocket events
+        function taskListHandler({ tasks }) {
+            const taskContainer = document.querySelector("#tasks");
+            taskContainer.innerHTML = ""; // Clear existing tasks
+
+            tasks.forEach(task => {
+                taskContainer.appendChild(createTaskCard(task));
+                setupTaskListeners(task);
+            });
+        }
+
+        function taskAddHandler(task) {
+            const taskList = document.querySelector("#tasks");
+            taskList.appendChild(createTaskCard(task));
+            setupTaskListeners(task);
+        }
+
+        function taskUpdateHandler({ id, name }) {
+            document.getElementById(`taskUpdateInput_${id}`).value = name;
+        }
+
+        function taskDeleteHandler({ id }) {
+            document.getElementById(`taskCard_${id}`).remove();
+        }
+
+        function itemAddHandler(item) {
+            const taskItemList = document.querySelector(`#taskItemList_${item.taskId}`);
+            taskItemList.innerHTML += createItemCheckbox(item);
+        }
+
+        function itemUpdateHandler(item) {
+            document.getElementById(`itemcheckbox_input_${item.id}`).checked = !!item.done_at;
+        }
+
+        function itemDeleteHandler({ id }) {
+            document.getElementById(`itemcheckbox_${id}`).remove();
+        }
+
+        // Setup event listeners for dynamically generated elements
+        function setupTaskListeners(task) {
+            const taskUpdateInput = document.getElementById(`taskUpdateInput_${task.id}`);
+            taskUpdateInput.addEventListener("keypress", event => {
+                if (event.key === "Enter") taskUpdate(task.id, taskUpdateInput.value);
+            });
+
+            const newItemInput = document.getElementById(`newItemInput_${task.id}`);
+            newItemInput.addEventListener("keypress", event => {
+                if (event.key === "Enter") {
+                    itemAdd(task.id, newItemInput.value);
+                    newItemInput.value = "";
+                }
+            });
+        }
+
+        // WebSocket send functions
+        function taskAdd(name) {
+            checklistSocket.send(JSON.stringify({ type: "task.add", name }));
+        }
+
+        function taskUpdate(id, name) {
+            checklistSocket.send(JSON.stringify({ type: "task.update", id, name }));
+        }
+
+        function taskDelete(id) {
+            checklistSocket.send(JSON.stringify({ type: "task.delete", id }));
+        }
+
+        function itemAdd(taskId, name) {
+            checklistSocket.send(JSON.stringify({ type: "item.add", taskId, name }));
+        }
+
+        function itemUpdate(id, done_at) {
+            checklistSocket.send(JSON.stringify({ type: "item.update", id, done_at: done_at ? new Date().toISOString() : null }));
+        }
+
+        function itemDelete(id) {
+            checklistSocket.send(JSON.stringify({ type: "item.delete", id }));
+        }
+
+        // Initialize WebSocket connection
+        connect();
+    </script>
+</body>
+</html>
