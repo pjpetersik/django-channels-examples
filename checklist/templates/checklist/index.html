@@ -16,28 +16,49 @@
 <body>
     <div class="container mt-3 p-5">
         <h2>django-channels-checklist</h2>
-        <div id="tasks" class="row"></div>
-        <div id="newTask" class="row">
-            <div class="col-12 col-md-6 mb-3">
-                <div class="card shadow-sm h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">
-                            <input 
-                                id="newTaskInput"
-                                type="text"
-                                placeholder="Add a new task..." 
-                                class="w-100 bg-transparent fw-bold"
-                                style="border: none; outline: none;"
-                            >
-                        </h5>
+        {% if request.user.is_authenticated %}
+            <div id="tasks" class="row"></div>
+            <div id="newTask" class="row">
+                <div class="col-12 col-md-6 mb-3">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <input 
+                                    id="newTaskInput"
+                                    type="text"
+                                    placeholder="Add a new task..." 
+                                    class="w-100 bg-transparent fw-bold"
+                                    style="border: none; outline: none;"
+                                >
+                            </h5>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        {% else %}
+            <div class="col-12 col-md-6 mb-3">
+                <div class="card shadow-sm h-100 bg-danger text-white">
+                    <div class="card-body">
+                            <h5 class="card-title">
+                                You must login.
+                            </h5>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
     </div>
 
     <script>
         console.log("Sanity check from index.html script.");
+
+        // Event listener for task input
+        document.getElementById("newTaskInput").addEventListener("keypress", event => {
+            if (event.key === "Enter") {
+                taskCreate(event.target.value);
+                event.target.value = "";
+            }
+        });
 
         // WebSocket connection and reconnect logic
         function connect() {
@@ -51,37 +72,44 @@
             };
         }
 
-        // Event listener for task input
-        document.getElementById("newTaskInput").addEventListener("keypress", event => {
-            if (event.key === "Enter") {
-                taskAdd(event.target.value);
-                event.target.value = "";
-            }
-        });
-
-        // Handle incoming WebSocket messages
-        function handleMessage(data) {
-            const handlers = {
-                "task.list": taskListHandler,
-                "task.add": taskAddHandler,
-                "task.update": taskUpdateHandler,
-                "task.delete": taskDeleteHandler,
-                "item.add": itemAddHandler,
-                "item.update": itemUpdateHandler,
-                "item.delete": itemDeleteHandler,
-            };
-            const handler = handlers[data.type];
-            handler ? handler(data) : console.error(`Unknown message type: ${data.type}`);
-        }
-
         // Generate item checkbox HTML
         function createItemCheckbox(item) {
-            return `
-                <div id="itemcheckbox_${item.id}" class="d-flex align-items-center">
-                    <input id="itemcheckbox_input_${item.id}" type="checkbox" ${item.done_at ? "checked" : ""}onchange="itemUpdate(${item.id}, this.checked)">
-                    <label for="itemcheckbox_${item.id}" class="ms-2">${item.name}</label>
-                    <button class="btn btn-sm btn-dark ms-auto p-0" style="font-size: 0.75rem; width: 20px; height: 20px;" onclick="itemDelete(${item.id})">X</button>
-                </div>`;
+            const itemCheckbox = document.createElement("div");
+            itemCheckbox.id = `itemcheckbox_${item.id}`;
+            itemCheckbox.className = "d-flex align-items-center";
+            
+            // Create the checkbox input
+            const checkbox = document.createElement("input");
+            checkbox.id = `itemcheckbox_input_${item.id}`;
+            checkbox.type = "checkbox";
+            checkbox.checked = item.done_at ? true : false;
+            checkbox.onchange = function () {
+                itemUpdate(item.id, checkbox.checked);
+            };
+
+            // Create the label
+            const label = document.createElement("label");
+            label.htmlFor = checkbox.id;
+            label.className = "ms-2";
+            label.textContent = item.name;  // SAFE: Using textContent to prevent XSS
+
+            // Create the delete button
+            const deleteButton = document.createElement("button");
+            deleteButton.className = "btn btn-sm btn-dark ms-auto p-0";
+            deleteButton.style.fontSize = "0.75rem";
+            deleteButton.style.width = "20px";
+            deleteButton.style.height = "20px";
+            deleteButton.textContent = "X";  // SAFE: Using textContent
+            deleteButton.onclick = function () {
+                itemDelete(item.id);
+            };
+
+            // Append the checkbox, label, and delete button to the item div
+            itemCheckbox.appendChild(checkbox);
+            itemCheckbox.appendChild(label);
+            itemCheckbox.appendChild(deleteButton);
+
+            return itemCheckbox;
         }
 
         // Generate task card HTML
@@ -90,35 +118,93 @@
             taskCard.id = `taskCard_${task.id}`;
             taskCard.className = "col-12 col-md-6 mb-3";
 
-            const taskItemList = task.items.map(createItemCheckbox).join('');
+            // Create card container
+            const cardDiv = document.createElement("div");
+            cardDiv.className = "card shadow-sm h-100";
 
-            taskCard.innerHTML = `
-                <div class="card shadow-sm h-100">
-                    <div class="card-body">
-                        <button class="btn btn-sm btn-danger ms-auto p-0" style="position: absolute; top: 10px; right: 10px; font-size: 0.75rem; width: 20px; height: 20px;" onclick="taskDelete(${task.id})">X</button>
-                        <h5 class="card-title">
-                            <input
-                                id="taskUpdateInput_${task.id}"
-                                type="text"
-                                class="w-100 border-0 bg-transparent fw-bold"
-                                value="${task.name}"
-                            >
-                        </h5>
-                        <div id="taskItemList_${task.id}">${taskItemList}</div>
-                        <input 
-                            type="text" 
-                            id="newItemInput_${task.id}"
-                            placeholder="Add a new item..."
-                            class="w-100 border-0 bg-transparent"
-                            style="border: none; outline: none;"
-                        >
-                    </div>
-                </div>`;
+            // Create card body
+            const cardBody = document.createElement("div");
+            cardBody.className = "card-body";
+
+            // Create delete button
+            const deleteButton = document.createElement("button");
+            deleteButton.className = "btn btn-sm btn-danger ms-auto p-0";
+            deleteButton.style.position = "absolute";
+            deleteButton.style.top = "10px";
+            deleteButton.style.right = "10px";
+            deleteButton.style.fontSize = "0.75rem";
+            deleteButton.style.width = "20px";
+            deleteButton.style.height = "20px";
+            deleteButton.textContent = "X";  // SAFE: Using textContent
+            deleteButton.onclick = function () {
+                taskDelete(task.id);
+            };
+
+            // Create the card title
+            const cardTitle = document.createElement("h5");
+            cardTitle.className = "card-title";
+
+            // Create the input for task name (editable)
+            const taskNameInput = document.createElement("input");
+            taskNameInput.id = `taskUpdateInput_${task.id}`;
+            taskNameInput.type = "text";
+            taskNameInput.className = "w-100 border-0 bg-transparent fw-bold";
+            taskNameInput.value = task.name;  // SAFE: Value assigned directly
+            taskNameInput.style.border = "none";
+            taskNameInput.style.outline = "none";
+
+            // Append the task name input to the card title
+            cardTitle.appendChild(taskNameInput);
+
+            // Create task item list container
+            const taskItemList = document.createElement("div");
+            taskItemList.id = `taskItemList_${task.id}`;
+
+            // Create the input field for adding new items
+            const newItemInput = document.createElement("input");
+            newItemInput.type = "text";
+            newItemInput.id = `newItemInput_${task.id}`;
+            newItemInput.placeholder = "Add a new item...";
+            newItemInput.className = "w-100 border-0 bg-transparent";
+            newItemInput.style.border = "none";
+            newItemInput.style.outline = "none";
+
+            // Append the delete button, title, and other elements to the card body
+            cardBody.appendChild(deleteButton);
+            cardBody.appendChild(cardTitle);
+            cardBody.appendChild(taskItemList);
+            cardBody.appendChild(newItemInput);
+
+            // Append the card body to the card container
+            cardDiv.appendChild(cardBody);
+
+            // Append the card container to the taskCard
+            taskCard.appendChild(cardDiv);
+
+            // Find the task item list container and append checkboxes
+            task.item_set.forEach(item => {
+                const itemCheckbox = createItemCheckbox(item);
+                taskItemList.appendChild(itemCheckbox); // Append DOM elements directly
+            });
 
             return taskCard;
         }
 
         // Handlers for WebSocket events
+        function handleMessage(data) {
+            const handlers = {
+                "task.list": taskListHandler,
+                "task.create": taskCreateHandler,
+                "task.update": taskUpdateHandler,
+                "task.delete": taskDeleteHandler,
+                "item.create": itemCreateHandler,
+                "item.update": itemUpdateHandler,
+                "item.delete": itemDeleteHandler,
+            };
+            const handler = handlers[data.type];
+            handler ? handler(data) : console.error(`Unknown message type: ${data.type}`);
+        }
+
         function taskListHandler({ tasks }) {
             const taskContainer = document.querySelector("#tasks");
             taskContainer.innerHTML = ""; // Clear existing tasks
@@ -129,7 +215,7 @@
             });
         }
 
-        function taskAddHandler(task) {
+        function taskCreateHandler(task) {
             const taskList = document.querySelector("#tasks");
             taskList.appendChild(createTaskCard(task));
             setupTaskListeners(task);
@@ -143,9 +229,9 @@
             document.getElementById(`taskCard_${id}`).remove();
         }
 
-        function itemAddHandler(item) {
-            const taskItemList = document.querySelector(`#taskItemList_${item.taskId}`);
-            taskItemList.innerHTML += createItemCheckbox(item);
+        function itemCreateHandler(item) {
+            const taskItemList = document.querySelector(`#taskItemList_${item.task}`);
+            taskItemList.appendChild(createItemCheckbox(item));
         }
 
         function itemUpdateHandler(item) {
@@ -166,15 +252,15 @@
             const newItemInput = document.getElementById(`newItemInput_${task.id}`);
             newItemInput.addEventListener("keypress", event => {
                 if (event.key === "Enter") {
-                    itemAdd(task.id, newItemInput.value);
+                    itemCreate(task.id, newItemInput.value);
                     newItemInput.value = "";
                 }
             });
         }
 
         // WebSocket send functions
-        function taskAdd(name) {
-            checklistSocket.send(JSON.stringify({ type: "task.add", name }));
+        function taskCreate(name) {
+            checklistSocket.send(JSON.stringify({ type: "task.create", name }));
         }
 
         function taskUpdate(id, name) {
@@ -185,12 +271,12 @@
             checklistSocket.send(JSON.stringify({ type: "task.delete", id }));
         }
 
-        function itemAdd(taskId, name) {
-            checklistSocket.send(JSON.stringify({ type: "item.add", taskId, name }));
+        function itemCreate(taskId, name) {
+            checklistSocket.send(JSON.stringify({ type: "item.create", task: taskId, name }));
         }
 
-        function itemUpdate(id, done_at) {
-            checklistSocket.send(JSON.stringify({ type: "item.update", id, done_at: done_at ? new Date().toISOString() : null }));
+        function itemUpdate(id, checked) {
+            checklistSocket.send(JSON.stringify({ type: "item.update", id, done_at: checked ? new Date().toISOString() : null }));
         }
 
         function itemDelete(id) {
